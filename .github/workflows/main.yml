@@ -15,7 +15,12 @@ jobs:
           python-version: "3.11"
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install edge-tts g4f requests pytrends google-api-python-client google-auth
-      - run: |
+      - name: Run bot
+        env:
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
           python - <<EOF
           import os, tempfile, subprocess, json, random, asyncio, edge_tts, g4f, requests
           from pytrends.request import TrendReq
