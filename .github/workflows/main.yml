@@ -22,8 +22,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           python - <<EOF
-          import os, tempfile, subprocess, json, random, asyncio, edge_tts, g4f, requests
-          from pytrends.request import TrendReq
+          import os, tempfile, subprocess, json, random, asyncio, edge_tts, g4f, requests, re, math
           from google.oauth2.credentials import Credentials
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
@@ -32,64 +31,86 @@ jobs:
           CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
           CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 
-          # 1. Trending topic
-          print("Picking trending topic...")
-          viral_topics = [
-              "iPhone 17 leaked features shock everyone",
-              "TikTok ban update that changes everything",
-              "Morning routine of millionaires exposed",
-              "This 1-minute trick saves your phone battery",
-              "AI robot replaces human workers overnight",
-              "Secret airplane hack flight attendants hate",
-              "Food combination that melts belly fat",
-              "World's most dangerous road revealed",
-              "Why everyone is quitting their 9-5 jobs",
-              "Government declassified UFO footage",
-              "Messi vs Ronaldo final debate ended",
-              "Hidden Amazon button gives massive discount",
-              "School lunch in Japan vs America",
-              "Baby speaks first words in 5 languages",
-              "Ocean discovered under Earth's crust",
-              "Free electricity device shocks scientists",
-              "Real reason celebrities delete Instagram",
-              "McDonald's secret menu item confirmed",
-              "Simple test predicts your lifespan",
-              "New planet found with possible life"
-          ]
-          topic = random.choice(viral_topics)
+          # 1. Trending topic (dynamic from AI)
+          print("Fetching trending topic...")
+          trend_prompt = "List 5 trending topics right now that would make viral YouTube Shorts. Return only the topics, one per line, no numbers."
+          trend_response = g4f.ChatCompletion.create(
+              model=g4f.models.gpt_4,
+              messages=[{"role": "user", "content": trend_prompt}]
+          )
+          trending_list = [line.strip() for line in trend_response.split('\n') if line.strip()]
+          if not trending_list:
+              # Fallback static list if AI fails
+              trending_list = [
+                  "iPhone 17 leaked features shock everyone",
+                  "TikTok ban update that changes everything",
+                  "Morning routine of millionaires exposed",
+                  "This 1-minute trick saves your phone battery",
+                  "AI robot replaces human workers overnight",
+                  "Secret airplane hack flight attendants hate",
+                  "Food combination that melts belly fat",
+                  "World's most dangerous road revealed",
+                  "Why everyone is quitting their 9-5 jobs",
+                  "Government declassified UFO footage"
+              ]
+          topic = random.choice(trending_list)
           print(f"Topic: {topic}")
 
-          # 2. Script and SEO
+          # 2. Script and SEO (natural voice, strict format)
           print("Generating script...")
-          prompt = f"""Create a viral 60-second YouTube Short script about '{topic}'.
-          Use a strong hook in the first 2 seconds, a curiosity gap, fast cuts, and a call to action.
-          Also provide:
-          - SEO optimized title (max 100 chars)
-          - Description with hashtags
-          - 10 comma-separated tags
-          Format exactly:
-          SCRIPT:
-          ...
-          TITLE: ...
-          DESCRIPTION: ...
-          TAGS: ..."""
+          prompt = f"""Write a conversational, engaging 60-second YouTube Short script about '{topic}'.
+          Rules:
+          - Use a natural, varied pace — not all sentences the same length.
+          - Read aloud smoothly, avoid choppy one-word pauses.
+          - Keep the entire script under 150 words.
+          - Start directly with the hook, no introductions.
+          - End with a call to action (like, subscribe).
+          After the script, provide:
+          TITLE: [SEO title, max 100 chars]
+          DESCRIPTION: [description with 3 hashtags]
+          TAGS: [10 comma-separated tags]
+          
+          Example:
+          Did you know there's a road where 300 people die every year? Bolivia's Death Road was built by prisoners with no guardrails and cliffs over 600 meters deep. Today, thrill‑seekers still bike down it for the ultimate adrenaline rush. Would you dare? Subscribe for more crazy facts!
+          TITLE: Bolivia's Death Road Will Shock You
+          DESCRIPTION: The world's most dangerous road claims lives every year. Would you ride it? #dangerousroads #bolivia #extremetravel
+          TAGS: death road,most dangerous road,bolivia,yungas road,adrenaline,extreme travel,cliffside,thrill seeker,viral fact,scary places"""
           response = g4f.ChatCompletion.create(
               model=g4f.models.gpt_4,
               messages=[{"role": "user", "content": prompt}]
           )
-          parts = response.split("TITLE:")
-          script = parts[0].replace("SCRIPT:", "").strip()
-          rest = parts[1].strip()
-          title, rest = rest.split("\nDESCRIPTION:")
-          desc, tags = rest.split("\nTAGS:")
-          title = title.strip()[:100]
-          desc = desc.strip()
-          tags = [t.strip() for t in tags.split(",")]
+          # Parse response
+          if "TITLE:" in response:
+              parts = response.split("TITLE:")
+              script_raw = parts[0].strip()
+              meta = parts[1].strip()
+              # Remove any stray "SCRIPT:" or intro words
+              script = re.sub(r'^(SCRIPT:|Here is.*?)\s*', '', script_raw, flags=re.IGNORECASE).strip()
+              if len(script.split()) < 20:
+                  script = script_raw  # fallback
+              # Parse meta
+              meta_parts = meta.split("\nDESCRIPTION:")
+              title = meta_parts[0].strip()[:100]
+              if "DESCRIPTION:" in meta:
+                  desc_part = meta_parts[1].split("\nTAGS:")
+                  desc = desc_part[0].strip()
+                  tags = [t.strip() for t in desc_part[1].split(",")][:10] if len(desc_part) > 1 and "TAGS:" in meta else ["viral", "trending"]
+              else:
+                  desc = "Viral short video."
+                  tags = ["viral", "trending"]
+          else:
+              script = response.strip()
+              title = f"{topic[:95]}..."
+              desc = "Viral short. #viral #trending #shorts"
+              tags = ["viral", "trending", "shorts"]
+          print(f"Script length: {len(script.split())} words")
           print(f"Title: {title}")
 
           # 3. Generate images
           print("Generating images...")
           lines = [l.strip() for l in script.split('.') if l.strip()][:5]
+          if len(lines) < 2:
+              lines = [script] * 3
           image_paths = []
           for line in lines:
               prompt_img = f"realistic cinematic 9:16 vertical shot, {line}"
@@ -100,12 +121,13 @@ jobs:
               tmp.close()
               image_paths.append(tmp.name)
 
-          # 4. TTS + subtitles
+          # 4. TTS with improved naturalness (Aria, +10% rate)
           print("Generating voiceover...")
           audio_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
           subs_file = tempfile.NamedTemporaryFile(suffix='.srt', delete=False)
           async def tts():
-              communicate = edge_tts.Communicate(script, "en-US-JennyNeural")
+              # Use AriaNeural with rate boost for more natural flow
+              communicate = edge_tts.Communicate(script, "en-US-AriaNeural", rate="+10%")
               submaker = edge_tts.SubMaker()
               with open(audio_file.name, 'wb') as f:
                   async for chunk in communicate.stream():
@@ -117,13 +139,42 @@ jobs:
                   f.write(submaker.get_srt())
           asyncio.run(tts())
 
-          # 5. Get audio duration
+          # 5. Audio duration and trim to ≤60s
           result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries',
                                    'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1',
                                    audio_file.name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
           dur = float(result.stdout)
+          if dur > 60:
+              print(f"Audio too long ({dur:.1f}s), trimming to 60s...")
+              trimmed_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
+              subprocess.run(['ffmpeg', '-y', '-i', audio_file.name, '-t', '60', '-c:a', 'aac', trimmed_audio.name], check=True)
+              audio_file = trimmed_audio
+              dur = 60.0
+          print(f"Audio duration: {dur:.1f}s")
 
-          # 6. Silent slideshow
+          # 6. Ensure subtitles exist (generate fallback SRT if empty)
+          if os.path.getsize(subs_file.name) == 0:
+              print("No word-level subtitles generated, creating full‑caption SRT.")
+              # Create a single subtitle block covering the whole script
+              with open(subs_file.name, 'w') as f:
+                  f.write("1\n00:00:00,000 --> 00:00:59,000\n" + script + "\n\n")
+          else:
+              # Truncate subtitles that go beyond 60s
+              with open(subs_file.name, 'r') as f:
+                  srt_content = f.read()
+              # Simple truncation: remove any cues starting beyond 60s
+              new_srt = []
+              for block in srt_content.strip().split('\n\n'):
+                  lines = block.split('\n')
+                  if len(lines) >= 2:
+                      time_line = lines[1]
+                      start_time = time_line.split(' --> ')[0]
+                      if time_to_seconds(start_time) < 60:
+                          new_srt.append(block)
+              with open(subs_file.name, 'w') as f:
+                  f.write('\n\n'.join(new_srt) + '\n\n')
+
+          # 7. Silent slideshow
           print("Making video...")
           n = len(image_paths)
           dur_each = dur / n
@@ -136,19 +187,13 @@ jobs:
           concat = f"{' '.join(filter_parts)}concat=n={n}:v=1:a=0,format=yuv420p"
           subprocess.run(['ffmpeg', '-y'] + inputs + ['-filter_complex', concat, '-c:v', 'libx264', '-preset', 'ultrafast', silent], check=True)
 
-          # 7. Burn captions + audio (skip subtitles if empty)
+          # 8. Burn captions + audio
           final = '/tmp/final.mp4'
-          subs_empty = os.path.getsize(subs_file.name) == 0
-          if subs_empty:
-              print("No subtitles generated – skipping captions burn.")
-              subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
-                              '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
-          else:
-              subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
-                              '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
-                              '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
+          subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
+                          '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
+                          '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
 
-          # 8. Upload to YouTube
+          # 9. Upload
           print("Uploading to YouTube...")
           creds = Credentials.from_authorized_user_info({
               'refresh_token': REFRESH_TOKEN,
@@ -167,5 +212,16 @@ jobs:
           }
           media = MediaFileUpload(final, chunksize=-1, resumable=True)
           youtube.videos().insert(part='snippet,status', body=body, media_body=media).execute()
-          print("Upload complete!")
+          print("Upload complete! Check your channel.")
           EOF
+
+      # Helper function for time conversion (outside Python block)
+      - name: Helper function
+        run: |
+          python -c "
+          import sys
+          def time_to_seconds(t):
+              h, m, s = t.replace(',','.').split(':')
+              return int(h)*3600 + int(m)*60 + float(s)
+          "
+        shell: bash
