@@ -33,19 +33,31 @@ jobs:
           CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
           CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 
-          # 1. Trending topic (fallback method)
-          print("Finding trending topic...")
-          try:
-              pytrends = TrendReq(hl='en-US', tz=360)
-              trending = pytrends.trending_searches(pn='united_states')
-              topic = random.choice(trending[0].head(20).tolist())
-          except Exception as e:
-              print("Pytrends failed, using AI fallback...")
-              prompt_topic = "Give me a trending topic right now that would make a viral YouTube Short. Only reply with the topic name, nothing else."
-              topic = g4f.ChatCompletion.create(
-                  model=g4f.models.gpt_4,
-                  messages=[{"role": "user", "content": prompt_topic}]
-              ).strip()
+          # 1. Trending topic (built-in viral list)
+          print("Picking trending topic...")
+          viral_topics = [
+              "iPhone 17 leaked features shock everyone",
+              "TikTok ban update that changes everything",
+              "Morning routine of millionaires exposed",
+              "This 1-minute trick saves your phone battery",
+              "AI robot replaces human workers overnight",
+              "Secret airplane hack flight attendants hate",
+              "Food combination that melts belly fat",
+              "World's most dangerous road revealed",
+              "Why everyone is quitting their 9-5 jobs",
+              "Government declassified UFO footage",
+              "Messi vs Ronaldo final debate ended",
+              "Hidden Amazon button gives massive discount",
+              "School lunch in Japan vs America",
+              "Baby speaks first words in 5 languages",
+              "Ocean discovered under Earth's crust",
+              "Free electricity device shocks scientists",
+              "Real reason celebrities delete Instagram",
+              "McDonald's secret menu item confirmed",
+              "Simple test predicts your lifespan",
+              "New planet found with possible life"
+          ]
+          topic = random.choice(viral_topics)
           print(f"Topic: {topic}")
 
           # 2. Script and SEO
