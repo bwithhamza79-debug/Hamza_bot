@@ -1,11 +1,141 @@
-name: Test bot
+name: Viral Shorts Bot
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * *"
 
 jobs:
-  test:
+  create-and-upload:
     runs-on: ubuntu-latest
     steps:
-      - name: Say hello
-        run: echo "Your free cloud bot is alive!"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install edge-tts g4f requests pytrends google-api-python-client google-auth
+      - run: |
+          python - <<EOF
+          import os, tempfile, subprocess, json, random, asyncio, edge_tts, g4f, requests
+          from pytrends.request import TrendReq
+          from google.oauth2.credentials import Credentials
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          # Secrets from GitHub
+          REFRESH_TOKEN = os.environ["YOUTUBE_REFRESH_TOKEN"]
+          CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
+          CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
+
+          # 1. Trending topic
+          print("Finding trending topic...")
+          pytrends = TrendReq(hl='en-US', tz=360)
+          trending = pytrends.trending_searches(pn='united_states')
+          topic = random.choice(trending[0].head(20).tolist())
+          print(f"Topic: {topic}")
+
+          # 2. Script and SEO
+          print("Generating script...")
+          prompt = f"""Create a viral 60-second YouTube Short script about '{topic}'.
+          Use a strong hook in the first 2 seconds, a curiosity gap, fast cuts, and a call to action.
+          Also provide:
+          - SEO optimized title (max 100 chars)
+          - Description with hashtags
+          - 10 comma-separated tags
+          Format exactly:
+          SCRIPT:
+          ...
+          TITLE: ...
+          DESCRIPTION: ...
+          TAGS: ..."""
+          response = g4f.ChatCompletion.create(
+              model=g4f.models.gpt_4,
+              messages=[{"role": "user", "content": prompt}]
+          )
+          parts = response.split("TITLE:")
+          script = parts[0].replace("SCRIPT:", "").strip()
+          rest = parts[1].strip()
+          title, rest = rest.split("\nDESCRIPTION:")
+          desc, tags = rest.split("\nTAGS:")
+          title = title.strip()[:100]
+          desc = desc.strip()
+          tags = [t.strip() for t in tags.split(",")]
+          print(f"Title: {title}")
+
+          # 3. Generate images
+          print("Generating images...")
+          lines = [l.strip() for l in script.split('.') if l.strip()][:5]
+          image_paths = []
+          for line in lines:
+              prompt_img = f"realistic cinematic 9:16 vertical shot, {line}"
+              url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt_img)}?width=576&height=1024&nologo=true"
+              r = requests.get(url)
+              tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+              tmp.write(r.content)
+              tmp.close()
+              image_paths.append(tmp.name)
+
+          # 4. TTS + subtitles
+          print("Generating voiceover...")
+          audio_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
+          subs_file = tempfile.NamedTemporaryFile(suffix='.srt', delete=False)
+          async def tts():
+              communicate = edge_tts.Communicate(script, "en-US-JennyNeural")
+              submaker = edge_tts.SubMaker()
+              with open(audio_file.name, 'wb') as f:
+                  async for chunk in communicate.stream():
+                      if chunk["type"] == "audio":
+                          f.write(chunk["data"])
+                      elif chunk["type"] == "WordBoundary":
+                          submaker.feed(chunk)
+              with open(subs_file.name, 'w') as f:
+                  f.write(submaker.get_srt())
+          asyncio.run(tts())
+
+          # 5. Get audio duration
+          result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries',
+                                   'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1',
+                                   audio_file.name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+          dur = float(result.stdout)
+
+          # 6. Silent slideshow
+          print("Making video...")
+          n = len(image_paths)
+          dur_each = dur / n
+          inputs = []
+          filter_parts = []
+          for i, img in enumerate(image_paths):
+              inputs += ['-loop', '1', '-t', str(dur_each), '-i', img]
+              filter_parts.append(f'[{i}:v]')
+          silent = '/tmp/silent.mp4'
+          concat = f"{' '.join(filter_parts)}concat=n={n}:v=1:a=0,format=yuv420p"
+          subprocess.run(['ffmpeg', '-y'] + inputs + ['-filter_complex', concat, '-c:v', 'libx264', '-preset', 'ultrafast', silent], check=True)
+
+          # 7. Burn captions + audio
+          final = '/tmp/final.mp4'
+          subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
+                          '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
+                          '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
+
+          # 8. Upload to YouTube
+          print("Uploading to YouTube...")
+          creds = Credentials.from_authorized_user_info({
+              'refresh_token': REFRESH_TOKEN,
+              'client_id': CLIENT_ID,
+              'client_secret': CLIENT_SECRET
+          })
+          youtube = build('youtube', 'v3', credentials=creds)
+          body = {
+              'snippet': {
+                  'title': title,
+                  'description': desc,
+                  'tags': tags,
+                  'categoryId': '22'
+              },
+              'status': {'privacyStatus': 'public'}
+          }
+          media = MediaFileUpload(final, chunksize=-1, resumable=True)
+          youtube.videos().insert(part='snippet,status', body=body, media_body=media).execute()
+          print("Upload complete!")
+          EOF
