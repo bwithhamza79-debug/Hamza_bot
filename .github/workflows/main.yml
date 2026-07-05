@@ -33,11 +33,19 @@ jobs:
           CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
           CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 
-          # 1. Trending topic
+          # 1. Trending topic (fallback method)
           print("Finding trending topic...")
-          pytrends = TrendReq(hl='en-US', tz=360)
-          trending = pytrends.trending_searches(pn='united_states')
-          topic = random.choice(trending[0].head(20).tolist())
+          try:
+              pytrends = TrendReq(hl='en-US', tz=360)
+              trending = pytrends.trending_searches(pn='united_states')
+              topic = random.choice(trending[0].head(20).tolist())
+          except Exception as e:
+              print("Pytrends failed, using AI fallback...")
+              prompt_topic = "Give me a trending topic right now that would make a viral YouTube Short. Only reply with the topic name, nothing else."
+              topic = g4f.ChatCompletion.create(
+                  model=g4f.models.gpt_4,
+                  messages=[{"role": "user", "content": prompt_topic}]
+              ).strip()
           print(f"Topic: {topic}")
 
           # 2. Script and SEO
