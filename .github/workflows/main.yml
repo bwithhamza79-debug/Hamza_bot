@@ -28,12 +28,11 @@ jobs:
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
 
-          # Secrets from GitHub
           REFRESH_TOKEN = os.environ["YOUTUBE_REFRESH_TOKEN"]
           CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
           CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 
-          # 1. Trending topic (built-in viral list)
+          # 1. Trending topic
           print("Picking trending topic...")
           viral_topics = [
               "iPhone 17 leaked features shock everyone",
@@ -137,11 +136,17 @@ jobs:
           concat = f"{' '.join(filter_parts)}concat=n={n}:v=1:a=0,format=yuv420p"
           subprocess.run(['ffmpeg', '-y'] + inputs + ['-filter_complex', concat, '-c:v', 'libx264', '-preset', 'ultrafast', silent], check=True)
 
-          # 7. Burn captions + audio
+          # 7. Burn captions + audio (skip subtitles if empty)
           final = '/tmp/final.mp4'
-          subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
-                          '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
-                          '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
+          subs_empty = os.path.getsize(subs_file.name) == 0
+          if subs_empty:
+              print("No subtitles generated – skipping captions burn.")
+              subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
+                              '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
+          else:
+              subprocess.run(['ffmpeg', '-y', '-i', silent, '-i', audio_file.name,
+                              '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
+                              '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
 
           # 8. Upload to YouTube
           print("Uploading to YouTube...")
