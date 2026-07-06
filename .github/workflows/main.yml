@@ -21,7 +21,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
-          python - <<EOF
+          python - <<'EOF'
           import os, tempfile, subprocess, json, random, asyncio, edge_tts, g4f, requests, re, math
           from google.oauth2.credentials import Credentials
           from googleapiclient.discovery import build
