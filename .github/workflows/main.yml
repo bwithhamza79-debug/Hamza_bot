@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: pip install edge-tts g4f requests google-api-python-client google-auth
+      - run: pip install edge-tts requests google-api-python-client google-auth
       - name: Run bot
         env:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
@@ -22,7 +22,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           python - <<'EOF'
-          import os, tempfile, subprocess, random, asyncio, edge_tts, g4f, requests, math
+          import os, tempfile, subprocess, random, asyncio, edge_tts, requests, math
           from google.oauth2.credentials import Credentials
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
@@ -31,48 +31,47 @@ jobs:
           CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
           CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 
-          # 1. Get trending topic from AI (fallback list if needed)
-          print("Fetching trending topic...")
-          fallback_topics = [
-              "iPhone 17 leaked features",
-              "TikTok ban update today",
-              "Morning routine of millionaires",
-              "One‑minute trick saves your phone battery",
-              "AI robot replaces human workers",
+          # 1. Proven viral topic (no AI – always clean)
+          viral_topics = [
+              "iPhone 17 leaked features shock everyone",
+              "TikTok ban update that changes everything",
+              "Morning routine of millionaires exposed",
+              "This 1‑minute trick saves your phone battery",
+              "AI robot replaces human workers overnight",
               "Secret airplane hack flight attendants hate",
               "Food combination that melts belly fat",
-              "World's most dangerous road",
-              "Why everyone is quitting 9‑to‑5 jobs",
-              "Government declassified UFO footage"
+              "World's most dangerous road revealed",
+              "Why everyone is quitting their 9‑5 jobs",
+              "Government declassified UFO footage",
+              "Messi vs Ronaldo final debate ended",
+              "Hidden Amazon button gives massive discount",
+              "School lunch in Japan vs America",
+              "Baby speaks first words in 5 languages",
+              "Ocean discovered under Earth's crust",
+              "Free electricity device shocks scientists",
+              "Real reason celebrities delete Instagram",
+              "McDonald's secret menu item confirmed",
+              "Simple test predicts your lifespan",
+              "New planet found with possible life"
           ]
-          try:
-              trend_response = g4f.ChatCompletion.create(
-                  model=g4f.models.gpt_4,
-                  messages=[{"role": "user", "content": "Give me one trending topic today for a viral YouTube Short. Only the topic text, nothing else."}]
-              )
-              topic = trend_response.strip()
-              if len(topic) < 5:
-                  raise ValueError("Too short")
-          except:
-              topic = random.choice(fallback_topics)
+          topic = random.choice(viral_topics)
           print(f"Topic: {topic}")
 
-          # 2. Build viral narration using a template (no AI script)
-          print("Building narration from template...")
+          # 2. Build viral narration from template
+          print("Building narration...")
           hook = f"Did you know about {topic}? This is blowing up the internet right now."
-          body = f"People can't stop talking about it. Experts are shocked by what they discovered. The truth behind this will change everything you thought you knew."
+          body = "People can't stop talking about it. Experts are shocked by what they discovered. The truth behind this will change everything you thought you knew."
           cta = "Like and subscribe for more trending updates!"
           narration = f"{hook} {body} {cta}"
-          # Trim to 150 words max if needed
           words = narration.split()
           if len(words) > 150:
               narration = ' '.join(words[:150])
           print(f"Narration: {narration[:120]}...")
 
-          # 3. Generate 5 AI images directly from topic (no scene descriptions)
+          # 3. Generate 5 AI images directly from topic keywords
           print("Generating images...")
           image_prompts = [
-              f"Trending topic {topic}, dramatic reveal",
+              f"{topic}, dramatic reveal, 9:16 vertical",
               f"{topic}, close‑up, intense lighting",
               f"People reacting to {topic}, viral moment",
               f"Breaking news about {topic}, bold headline",
@@ -87,7 +86,7 @@ jobs:
               tmp.close()
               image_paths.append(tmp.name)
 
-          # 4. Voiceover (Jenny, reliable and clean)
+          # 4. Voiceover (Jenny – most reliable)
           print("Generating voiceover...")
           audio_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
           subs_file = tempfile.NamedTemporaryFile(suffix='.srt', delete=False)
@@ -115,7 +114,7 @@ jobs:
               audio_file = trimmed_audio
               dur = 60.0
 
-          # 6. Build clean captions directly from narration (no SRT reliance)
+          # 6. Build clean captions directly from narration words
           print("Generating captions...")
           words = narration.split()
           chunk_size = max(1, len(words) // math.ceil(dur)) if dur > 0 else 4
@@ -124,22 +123,18 @@ jobs:
           for i in range(0, len(words), chunk_size):
               segment = ' '.join(words[i:i+chunk_size])
               end = min(start + 2.5, dur)
-              ms_start = int((start % 1) * 1000)
-              s_start = int(start % 60)
-              m_start = int((start // 60) % 60)
-              h_start = int(start // 3600)
-              ms_end = int((end % 1) * 1000)
-              s_end = int(end % 60)
-              m_end = int((end // 60) % 60)
-              h_end = int(end // 3600)
-              start_str = f"{h_start:02d}:{m_start:02d}:{s_start:02d},{ms_start:03d}"
-              end_str = f"{h_end:02d}:{m_end:02d}:{s_end:02d},{ms_end:03d}"
-              srt_entries.append(f"{len(srt_entries)+1}\n{start_str} --> {end_str}\n{segment}")
+              def fmt(t):
+                  ms = int((t % 1) * 1000)
+                  s = int(t % 60)
+                  m = int((t // 60) % 60)
+                  h = int(t // 3600)
+                  return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+              srt_entries.append(f"{len(srt_entries)+1}\n{fmt(start)} --> {fmt(end)}\n{segment}")
               start = end
           with open(subs_file.name, 'w') as f:
               f.write('\n\n'.join(srt_entries) + '\n\n')
 
-          # 7. Silent slideshow (match audio length)
+          # 7. Silent slideshow
           print("Making video...")
           n = len(image_paths)
           dur_each = dur / n
@@ -158,12 +153,13 @@ jobs:
                           '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
                           '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
 
-          # 9. SEO title, description, tags (also template‑based)
-          title = f"{topic} – You Won't Believe This! 😱"
-          desc = f"Trending right now: {topic}. The truth will shock you. Watch this viral short to see what everyone's talking about. #viral #trending #shorts"
-          tags = [topic] + ["viral", "trending", "breaking", "shorts", "youtube shorts", "trending topic", "viral short", "new trend", "whats trending"]
+          # 9. YouTube metadata (always clean, ASCII safe)
+          title = f"{topic} – You Won't Believe This!"
+          title = title.replace('\n', ' ').replace('\r', ' ')[:100]   # ensure no newlines
+          desc = f"Trending right now: {topic}. The truth will shock you. #viral #trending #shorts"
+          tags = [t.strip() for t in topic.replace('–', '').split()[:5]] + ["viral", "trending", "breaking", "shorts", "youtube shorts"]
 
-          # 10. Upload to YouTube
+          # 10. Upload
           print("Uploading to YouTube...")
           creds = Credentials.from_authorized_user_info({
               'refresh_token': REFRESH_TOKEN,
