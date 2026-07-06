@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: pip install edge-tts g4f requests pytrends google-api-python-client google-auth
+      - run: pip install edge-tts g4f requests google-api-python-client google-auth
       - name: Run bot
         env:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
@@ -22,7 +22,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           python - <<'EOF'
-          import os, tempfile, subprocess, json, random, asyncio, edge_tts, g4f, requests, re, math
+          import os, tempfile, subprocess, random, asyncio, edge_tts, g4f, requests, math
           from google.oauth2.credentials import Credentials
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
@@ -31,157 +31,67 @@ jobs:
           CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
           CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 
-          # 1. Dynamic trending topic
+          # 1. Get trending topic from AI (fallback list if needed)
           print("Fetching trending topic...")
-          trend_prompt = "Give me a single trending topic right now that would make a viral YouTube Short. Reply with only the topic text, no extra words."
+          fallback_topics = [
+              "iPhone 17 leaked features",
+              "TikTok ban update today",
+              "Morning routine of millionaires",
+              "One‑minute trick saves your phone battery",
+              "AI robot replaces human workers",
+              "Secret airplane hack flight attendants hate",
+              "Food combination that melts belly fat",
+              "World's most dangerous road",
+              "Why everyone is quitting 9‑to‑5 jobs",
+              "Government declassified UFO footage"
+          ]
           try:
               trend_response = g4f.ChatCompletion.create(
                   model=g4f.models.gpt_4,
-                  messages=[{"role": "user", "content": trend_prompt}]
+                  messages=[{"role": "user", "content": "Give me one trending topic today for a viral YouTube Short. Only the topic text, nothing else."}]
               )
               topic = trend_response.strip()
-              if len(topic) < 3:
-                  raise ValueError("Short topic")
+              if len(topic) < 5:
+                  raise ValueError("Too short")
           except:
-              topic = random.choice([
-                  "iPhone 17 leaked features shock everyone",
-                  "TikTok ban update that changes everything",
-                  "Morning routine of millionaires exposed",
-                  "This 1-minute trick saves your phone battery",
-                  "AI robot replaces human workers overnight",
-                  "Secret airplane hack flight attendants hate",
-                  "Food combination that melts belly fat",
-                  "World's most dangerous road revealed",
-                  "Why everyone is quitting their 9-5 jobs",
-                  "Government declassified UFO footage"
-              ])
+              topic = random.choice(fallback_topics)
           print(f"Topic: {topic}")
 
-          # 2. Script with separate NARRATION and SCENES
-          print("Generating script and scenes...")
-          prompt = f"""Create a viral 60-second YouTube Short about '{topic}'.
-          You must provide TWO clearly labelled sections:
-          1. NARRATION: (the spoken voiceover, conversational, max 150 words, start with a hook, end with a call to action)
-          2. SCENES: (exactly 5 short visual descriptions of what should be shown on screen, each on a new line, like "Aerial view of Death Road")
-          After that, provide the metadata:
-          TITLE: [SEO title, max 100 chars]
-          DESCRIPTION: [description with 3 hashtags]
-          TAGS: [10 comma-separated tags]
-          
-          Example:
-          NARRATION:
-          Did you know there's a road where 300 people die every year? Bolivia's Death Road was built by prisoners with no guardrails and cliffs over 600 meters deep. Today, thrill‑seekers still bike down it for the ultimate adrenaline rush. Would you dare? Subscribe for more crazy facts!
-          SCENES:
-          Drone shot of narrow cliffside road
-          Close-up of crumbling edge with deep drop
-          Bikers cycling past warning signs
-          POV handlebar view speeding down the road
-          Final shot of biker silhouetted against sunset
-          TITLE: Bolivia's Death Road Will Shock You
-          DESCRIPTION: The world's most dangerous road claims lives every year. Would you ride it? #dangerousroads #bolivia #extremetravel
-          TAGS: death road,most dangerous road,bolivia,yungas road,adrenaline,extreme travel,cliffside,thrill seeker,viral fact,scary places
-          
-          IMPORTANT: No markdown, no code blocks, no links. Use plain text only."""
-          try:
-              response = g4f.ChatCompletion.create(
-                  model=g4f.models.gpt_4,
-                  messages=[{"role": "user", "content": prompt}]
-              )
-          except:
-              response = ""
-          # Clean any stray markdown
-          cleaned = re.sub(r'```.*?```', '', response, flags=re.DOTALL)
-          cleaned = re.sub(r'`[^`]*`', '', cleaned)
-          cleaned = re.sub(r'http\S+', '', cleaned)
-          cleaned = re.sub(r'\[.*?\]\(.*?\)', '', cleaned)
-          cleaned = re.sub(r'<[^>]+>', '', cleaned)
-          cleaned = cleaned.strip()
+          # 2. Build viral narration using a template (no AI script)
+          print("Building narration from template...")
+          hook = f"Did you know about {topic}? This is blowing up the internet right now."
+          body = f"People can't stop talking about it. Experts are shocked by what they discovered. The truth behind this will change everything you thought you knew."
+          cta = "Like and subscribe for more trending updates!"
+          narration = f"{hook} {body} {cta}"
+          # Trim to 150 words max if needed
+          words = narration.split()
+          if len(words) > 150:
+              narration = ' '.join(words[:150])
+          print(f"Narration: {narration[:120]}...")
 
-          # Parse NARRATION and SCENES
-          narration = ""
-          scenes = []
-          if "NARRATION:" in cleaned.upper():
-              # Split on NARRATION: and SCENES:
-              parts_narration = re.split(r'(?i)NARRATION:', cleaned, maxsplit=1)
-              if len(parts_narration) > 1:
-                  rest = parts_narration[1]
-                  if "SCENES:" in rest.upper():
-                      parts_scenes = re.split(r'(?i)SCENES:', rest, maxsplit=1)
-                      narration = parts_scenes[0].strip()
-                      scenes_raw = parts_scenes[1] if len(parts_scenes) > 1 else ""
-                      # Extract scenes lines before TITLE: or end
-                      if "TITLE:" in scenes_raw.upper():
-                          scenes_raw = scenes_raw.split("TITLE:")[0].strip()
-                      scenes = [line.strip() for line in scenes_raw.split('\n') if line.strip()][:5]
-                  else:
-                      narration = rest.split("TITLE:")[0].strip() if "TITLE:" in rest.upper() else rest.strip()
-          else:
-              # Fallback: whole response is narration
-              narration = cleaned.split("TITLE:")[0].strip() if "TITLE:" in cleaned.upper() else cleaned
-
-          # Ensure narration is usable
-          narration = re.sub(r'^(SCRIPT:|NARRATION:|Here is.*?)\s*', '', narration, flags=re.IGNORECASE).strip()
-          if len(narration.split()) < 20:
-              narration = f"Did you know about {topic}? This trending topic is taking over social media right now. Experts are shocked by what they discovered. The truth will surprise you. Stay tuned for the full breakdown. Like and subscribe for more!"
-          print(f"Narration: {narration[:150]}...")
-
-          # If no scenes, generate from narration sentences
-          if len(scenes) < 2:
-              sentences = [s.strip() for s in narration.split('.') if s.strip()][:5]
-              scenes = [f"Visual representation of: {s}" for s in sentences]
-          print(f"Scenes: {scenes}")
-
-          # Metadata parsing
-          if "TITLE:" in cleaned.upper():
-              meta_split = re.split(r'(?i)TITLE:', cleaned, maxsplit=1)[1] if re.split(r'(?i)TITLE:', cleaned, maxsplit=1)[1] else ""
-              meta_parts = re.split(r'(?i)DESCRIPTION:', meta_split, maxsplit=1)
-              title = meta_parts[0].strip()[:100] if meta_parts[0] else f"{topic[:95]}..."
-              if len(meta_parts) > 1:
-                  desc_part = re.split(r'(?i)TAGS:', meta_parts[1], maxsplit=1)
-                  desc = desc_part[0].strip()
-                  tags = [t.strip() for t in desc_part[1].split(",")][:10] if len(desc_part) > 1 else ["viral", "trending"]
-              else:
-                  desc = f"Viral short about {topic}. #viral #trending #shorts"
-                  tags = ["viral", "trending", "shorts"]
-          else:
-              title = f"{topic[:95]}..."
-              desc = f"Viral short about {topic}. #viral #trending #shorts"
-              tags = ["viral", "trending", "shorts"]
-          print(f"Title: {title}")
-
-          # 3. Generate images from scenes
+          # 3. Generate 5 AI images directly from topic (no scene descriptions)
           print("Generating images...")
+          image_prompts = [
+              f"Trending topic {topic}, dramatic reveal",
+              f"{topic}, close‑up, intense lighting",
+              f"People reacting to {topic}, viral moment",
+              f"Breaking news about {topic}, bold headline",
+              f"{topic}, futuristic look, final shot"
+          ]
           image_paths = []
-          for scene in scenes:
-              prompt_img = f"realistic cinematic 9:16 vertical shot, {scene}"
-              url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt_img)}?width=576&height=1024&nologo=true"
+          for prompt in image_prompts:
+              url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=576&height=1024&nologo=true"
               r = requests.get(url)
               tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
               tmp.write(r.content)
               tmp.close()
               image_paths.append(tmp.name)
 
-          # 4. TTS with natural voice (Aria > Jenny)
+          # 4. Voiceover (Jenny, reliable and clean)
           print("Generating voiceover...")
           audio_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
           subs_file = tempfile.NamedTemporaryFile(suffix='.srt', delete=False)
           async def tts():
-              for voice in ["en-US-AriaNeural", "en-US-JennyNeural"]:
-                  try:
-                      communicate = edge_tts.Communicate(narration, voice, rate="+10%")
-                      submaker = edge_tts.SubMaker()
-                      with open(audio_file.name, 'wb') as f:
-                          async for chunk in communicate.stream():
-                              if chunk["type"] == "audio":
-                                  f.write(chunk["data"])
-                              elif chunk["type"] == "WordBoundary":
-                                  submaker.feed(chunk)
-                      with open(subs_file.name, 'w') as f:
-                          f.write(submaker.get_srt())
-                      return
-                  except:
-                      continue
-              # Final fallback
               communicate = edge_tts.Communicate(narration, "en-US-JennyNeural")
               submaker = edge_tts.SubMaker()
               with open(audio_file.name, 'wb') as f:
@@ -200,33 +110,34 @@ jobs:
                                    audio_file.name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
           dur = float(result.stdout)
           if dur > 60:
-              print(f"Audio too long ({dur:.1f}s), trimming to 60s...")
               trimmed_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
               subprocess.run(['ffmpeg', '-y', '-i', audio_file.name, '-t', '60', '-c:a', 'aac', trimmed_audio.name], check=True)
               audio_file = trimmed_audio
               dur = 60.0
-          print(f"Audio duration: {dur:.1f}s")
 
-          # 6. Subtitles fallback
-          def time_to_seconds(t):
-              h, m, s = t.replace(',','.').split(':')
-              return int(h)*3600 + int(m)*60 + float(s)
-          if os.path.getsize(subs_file.name) == 0:
-              print("No word-level subtitles, creating full SRT.")
-              with open(subs_file.name, 'w') as f:
-                  f.write("1\n00:00:00,000 --> 00:00:59,000\n" + narration + "\n\n")
-          else:
-              with open(subs_file.name, 'r') as f:
-                  srt_content = f.read()
-              new_srt = []
-              for block in srt_content.strip().split('\n\n'):
-                  lines = block.split('\n')
-                  if len(lines) >= 2:
-                      start_time = lines[1].split(' --> ')[0]
-                      if time_to_seconds(start_time) < 60:
-                          new_srt.append(block)
-              with open(subs_file.name, 'w') as f:
-                  f.write('\n\n'.join(new_srt) + '\n\n')
+          # 6. Build clean captions directly from narration (no SRT reliance)
+          print("Generating captions...")
+          words = narration.split()
+          chunk_size = max(1, len(words) // math.ceil(dur)) if dur > 0 else 4
+          srt_entries = []
+          start = 0.0
+          for i in range(0, len(words), chunk_size):
+              segment = ' '.join(words[i:i+chunk_size])
+              end = min(start + 2.5, dur)
+              ms_start = int((start % 1) * 1000)
+              s_start = int(start % 60)
+              m_start = int((start // 60) % 60)
+              h_start = int(start // 3600)
+              ms_end = int((end % 1) * 1000)
+              s_end = int(end % 60)
+              m_end = int((end // 60) % 60)
+              h_end = int(end // 3600)
+              start_str = f"{h_start:02d}:{m_start:02d}:{s_start:02d},{ms_start:03d}"
+              end_str = f"{h_end:02d}:{m_end:02d}:{s_end:02d},{ms_end:03d}"
+              srt_entries.append(f"{len(srt_entries)+1}\n{start_str} --> {end_str}\n{segment}")
+              start = end
+          with open(subs_file.name, 'w') as f:
+              f.write('\n\n'.join(srt_entries) + '\n\n')
 
           # 7. Silent slideshow (match audio length)
           print("Making video...")
@@ -247,7 +158,12 @@ jobs:
                           '-vf', f"subtitles={subs_file.name}:force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'",
                           '-c:v', 'libx264', '-c:a', 'aac', '-shortest', final], check=True)
 
-          # 9. Upload to YouTube
+          # 9. SEO title, description, tags (also template‑based)
+          title = f"{topic} – You Won't Believe This! 😱"
+          desc = f"Trending right now: {topic}. The truth will shock you. Watch this viral short to see what everyone's talking about. #viral #trending #shorts"
+          tags = [topic] + ["viral", "trending", "breaking", "shorts", "youtube shorts", "trending topic", "viral short", "new trend", "whats trending"]
+
+          # 10. Upload to YouTube
           print("Uploading to YouTube...")
           creds = Credentials.from_authorized_user_info({
               'refresh_token': REFRESH_TOKEN,
